@@ -1,6 +1,8 @@
-sudo apt install python3.12-venv
-pip install requests python-dotenv tenacity
+# Copy configuration files
+sudo cp ./config/* /etc/systemd/system/
 
+# Install dependencies
+sudo apt update && sudo apt install python3.12-venv
 python3 -m venv venv
 source venv/bin/activate
 pip install requests python-dotenv tenacity
