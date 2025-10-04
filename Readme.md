@@ -1,14 +1,14 @@
 sudo apt install python3.12-venv
+pip install requests python-dotenv tenacity
+
 python3 -m venv venv
 source venv/bin/activate
 pip install requests python-dotenv tenacity
 chmod +x attendance_automator.py
 
-
-
 # Create a service unit /etc/systemd/system/attendance.service
 
-'''
+```
 [Unit]
 Description=Attendance Automator
 
@@ -17,12 +17,30 @@ Type=oneshot
 User=nahid
 WorkingDirectory=/var/www/attendance_automation
 EnvironmentFile=/var/www/attendance_automation/.env
+ExecStart=/var/www/attendance_automation/venv/bin/python /var/www/attendance_automation/attendance_automator.py\
+
+```
+
+```
+[Unit]
+Description=Attendance Check-in on Startup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/attendance_automation
+EnvironmentFile=/var/www/attendance_automation/.env
+ExecStartPre=/bin/sleep 30
 ExecStart=/var/www/attendance_automation/venv/bin/python /var/www/attendance_automation/attendance_automator.py
 
+[Install]
+WantedBy=default.target
+```
 
 # Create timer /etc/systemd/system/attendance.timer
 
-''' 
+```
 [Unit]
 Description=Run Attendance Automator at boot and every 10 minutes
 
@@ -34,18 +52,15 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 
-
+```
 
 # command
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now attendance.timer
-
-
-
-
+sudo systemctl --user enable attendance.service
 
 ##### CLAUDE
-
 
 sudo nano ~/.config/systemd/user/attendance-checkin.service
 
@@ -70,6 +85,7 @@ WantedBy=default.target
 sudo nano ~/.config/systemd/user/attendance-checkout.service
 
 ```
+
 [Unit]
 Description=Attendance Check-out on Shutdown
 DefaultDependencies=no
@@ -85,22 +101,20 @@ RemainAfterExit=yes
 [Install]
 WantedBy=default.target
 
-
-
-
-
 systemctl --user daemon-reload
 systemctl --user enable attendance-checkin.service
 systemctl --user enable attendance-checkout.service
 systemctl --user start attendance-checkin.service
 systemctl --user start attendance-checkout.service
 
+# alternative
 
-
-# alternative 
 Using Cron (Alternative)
+
 # Check-in between 9:00-10:30 AM (runs every minute during this window)
+
 * 9-10 * * 1-5 /usr/bin/python3 /path/to/attendance.py checkin
 
 # Check-out between 5:00-7:00 PM (runs every minute during this window)
+
 * 17-18 * * 1-5 /usr/bin/python3 /path/to/attendance.py checkout
