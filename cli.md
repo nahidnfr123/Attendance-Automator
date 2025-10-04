@@ -40,10 +40,3 @@ systemctl --user status break-monitor.service
 journalctl --user -u attendance-checkin.service -f
 journalctl --user -u break-monitor.service -f
 
-
-
-systemctl --user daemon-reload
-systemctl --user enable attendance-checkin.service
-systemctl --user enable attendance-checkout.service
-systemctl --user enable break-monitor.service
-systemctl --user start break-monitor.service
