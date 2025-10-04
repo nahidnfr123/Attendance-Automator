@@ -1,5 +1,8 @@
+mkdir -p ~/.config/systemd/user
 # Copy configuration files
-sudo cp ./config/* /etc/systemd/system/
+cp ./config/* ~/.config/systemd/user/
+
+[//]: # (sudo cp ./config/* /etc/systemd/system/)
 
 # Install dependencies
 sudo apt update && sudo apt install python3.12-venv
