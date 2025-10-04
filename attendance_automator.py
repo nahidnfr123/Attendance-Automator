@@ -2,8 +2,9 @@
 """
 attendance_automator.py
 
-Usage: run on startup or via scheduler. It decides whether to attempt check-in or check-out
-based on local time and a daily state file.
+Usage:
+  - Run on startup or via scheduler for check-in/check-out
+  - Run with 'lock' or 'unlock' argument for break tracking
 
 Requirements:
   pip install requests python-dotenv tenacity
@@ -49,17 +50,20 @@ LOG_FILE = os.getenv("LOG_FILE", "")  # optional
 STATE_DIR = Path.home() / ".attendance_automator"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = STATE_DIR / "state.json"
+BREAK_STATE_FILE = STATE_DIR / "break_state.json"
 
 # Time windows (local times)
 CHECKIN_START = time(8, 0)
 CHECKIN_END = time(10, 30)
 
 CHECKOUT_START = time(17, 0)
-CHECKOUT_END = time(19, 0)
+CHECKOUT_END = time(19, 30)
 
 LOGIN_ENDPOINT = "/api/login"
 CHECKIN_ENDPOINT = "/api/attendances/check-in"
 CHECKOUT_ENDPOINT = "/api/attendances/check-out"
+BREAK_START_ENDPOINT = "/api/breaks/start"
+BREAK_END_ENDPOINT = "/api/breaks/end"
 
 # logging
 logger = logging.getLogger("attendance_automator")
@@ -72,6 +76,7 @@ if LOG_FILE:
     fh = logging.FileHandler(LOG_FILE)
     fh.setFormatter(fmt)
     logger.addHandler(fh)
+
 
 # ---------------------------
 # Helpers
@@ -95,13 +100,16 @@ def get_zoneinfo():
             return None
         return None
 
+
 TZ = get_zoneinfo()
+
 
 def now_local():
     # Return timezone-aware datetime if TZ set/available, otherwise naive local datetime
     if TZ:
         return datetime.now(TZ)
     return datetime.now()
+
 
 def iso_now():
     dt = now_local()
@@ -111,14 +119,17 @@ def iso_now():
         # append local offset unknown; produce ISO-like without tz
         return dt.replace(microsecond=0).isoformat()
 
+
 def is_weekend(dt=None):
     dt = dt or now_local()
     # weekday(): Mon=0, Sun=6
     return dt.weekday() >= 5
 
+
 def in_time_window(dt_time, start: time, end: time):
     # dt_time: a time object (from datetime)
     return (start <= dt_time <= end)
+
 
 # ---------------------------
 # State management
@@ -134,16 +145,19 @@ def read_state():
         logger.warning(f"Failed to read state file: {e}")
         return {}
 
+
 def write_state(state):
     tmp = STATE_FILE.with_suffix(".tmp")
     with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
     tmp.replace(STATE_FILE)
 
+
 def state_for_today():
     st = read_state()
     today_str = date.today().isoformat()
     return st.get(today_str, {"checkin": None, "checkout": None})
+
 
 def set_state_for_today(key, value):
     st = read_state()
@@ -151,12 +165,48 @@ def set_state_for_today(key, value):
     if today_str not in st:
         st[today_str] = {"checkin": None, "checkout": None}
     st[today_str][key] = value
-    # optionally prune old days (keep last 14)
+    # optionally prune old days (keep last 30)
     keys = sorted(st.keys())
     if len(keys) > 30:
         for k in keys[:-30]:
             st.pop(k, None)
     write_state(st)
+
+
+# ---------------------------
+# Break state management
+# ---------------------------
+
+def read_break_state():
+    try:
+        with open(BREAK_STATE_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"on_break": False, "break_start_time": None}
+    except Exception as e:
+        logger.warning(f"Failed to read break state file: {e}")
+        return {"on_break": False, "break_start_time": None}
+
+
+def write_break_state(state):
+    tmp = BREAK_STATE_FILE.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=2)
+    tmp.replace(BREAK_STATE_FILE)
+
+
+def is_on_break():
+    state = read_break_state()
+    return state.get("on_break", False)
+
+
+def set_break_started():
+    write_break_state({"on_break": True, "break_start_time": iso_now()})
+
+
+def set_break_ended():
+    write_break_state({"on_break": False, "break_start_time": None})
+
 
 # ---------------------------
 # Networking with retry
@@ -165,8 +215,10 @@ def set_state_for_today(key, value):
 session = requests.Session()
 session.headers.update({"User-Agent": "attendance-automator/1.0"})
 
+
 class NetworkError(Exception):
     pass
+
 
 @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=1, max=10),
        retry=retry_if_exception_type((requests.RequestException, NetworkError)))
@@ -181,6 +233,7 @@ def post_with_retry(url, json_payload=None, headers=None, timeout=10):
         raise NetworkError(f"server {resp.status_code}")
     return resp
 
+
 def extract_token_from_login_json(j):
     # try a few common fields
     for key in ("token", "access_token", "accessToken", "auth_token", "bearer"):
@@ -192,6 +245,7 @@ def extract_token_from_login_json(j):
     # sometimes nested in attributes
     # give up
     return None
+
 
 def login_and_get_token():
     if not API_BASE_URL or not EMAIL or not PASSWORD:
@@ -219,6 +273,7 @@ def login_and_get_token():
     logger.info("Login successful; token obtained")
     return token
 
+
 def do_check(endpoint, token):
     url = f"{API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -238,8 +293,9 @@ def do_check(endpoint, token):
         j = {"text": resp.text}
     return {"status_code": resp.status_code, "ok": ok, "resp_json": j}
 
+
 # ---------------------------
-# Main logic
+# Main logic: Check-in/Check-out
 # ---------------------------
 
 def attempt_checkin():
@@ -251,9 +307,10 @@ def attempt_checkin():
     result = do_check(CHECKIN_ENDPOINT, token)
     if result.get("ok"):
         set_state_for_today("checkin", {"time": iso_now(), "resp": result.get("resp_json")})
-        logger.info("Check-in recorded.")
+        logger.info("✓ Check-in recorded.")
     else:
         logger.error(f"Check-in failed: {result}")
+
 
 def attempt_checkout():
     st = state_for_today()
@@ -264,9 +321,10 @@ def attempt_checkout():
     result = do_check(CHECKOUT_ENDPOINT, token)
     if result.get("ok"):
         set_state_for_today("checkout", {"time": iso_now(), "resp": result.get("resp_json")})
-        logger.info("Check-out recorded.")
+        logger.info("✓ Check-out recorded.")
     else:
         logger.error(f"Check-out failed: {result}")
+
 
 def decide_and_act():
     dt = now_local()
@@ -290,12 +348,92 @@ def decide_and_act():
 
     logger.info("Not within any action window; no action taken.")
 
+
+# ---------------------------
+# Break tracking: Lock/Unlock
+# ---------------------------
+
+def handle_lock():
+    """Called when screen is locked (Windows+L, etc.)"""
+    dt = now_local()
+    logger.info(f"Screen locked at {iso_now()}; weekend={is_weekend(dt)}")
+
+    if is_weekend(dt):
+        logger.info("It's weekend: skipping break start.")
+        return
+
+    if is_on_break():
+        logger.info("Already on break; skipping duplicate break start.")
+        return
+
+    try:
+        token = login_and_get_token()
+        result = do_check(BREAK_START_ENDPOINT, token)
+        if result.get("ok"):
+            set_break_started()
+            logger.info("✓ Break started successfully.")
+        else:
+            logger.error(f"Break start failed: {result}")
+    except Exception as e:
+        logger.exception(f"Error starting break: {e}")
+
+
+def handle_unlock():
+    """Called when screen is unlocked"""
+    dt = now_local()
+    logger.info(f"Screen unlocked at {iso_now()}; weekend={is_weekend(dt)}")
+
+    if is_weekend(dt):
+        logger.info("It's weekend: skipping break end.")
+        return
+
+    if not is_on_break():
+        logger.info("Not on break; skipping break end.")
+        return
+
+    try:
+        token = login_and_get_token()
+        result = do_check(BREAK_END_ENDPOINT, token)
+        if result.get("ok"):
+            set_break_ended()
+            logger.info("✓ Break ended successfully.")
+        else:
+            logger.error(f"Break end failed: {result}")
+    except Exception as e:
+        logger.exception(f"Error ending break: {e}")
+
+
 # ---------------------------
 # CLI entry
 # ---------------------------
 if __name__ == "__main__":
     try:
-        decide_and_act()
+        # Check for lock/unlock argument
+        if len(sys.argv) > 1:
+            action = sys.argv[1].lower()
+            if action == "lock":
+                handle_lock()
+            elif action == "unlock":
+                handle_unlock()
+            elif action == "checkin":
+                # Manual check-in
+                if is_weekend():
+                    logger.info("It's weekend: no action.")
+                else:
+                    attempt_checkin()
+            elif action == "checkout":
+                # Manual check-out
+                if is_weekend():
+                    logger.info("It's weekend: no action.")
+                else:
+                    attempt_checkout()
+            else:
+                logger.error(f"Unknown action: {action}")
+                logger.info("Usage: python attendance_automator.py [lock|unlock|checkin|checkout]")
+                sys.exit(1)
+        else:
+            # No argument: auto-detect based on time
+            decide_and_act()
     except Exception as e:
         logger.exception(f"Unhandled error: {e}")
         sys.exit(2)
