@@ -51,7 +51,7 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = STATE_DIR / "state.json"
 
 # Time windows (local times)
-CHECKIN_START = time(9, 0)
+CHECKIN_START = time(8, 0)
 CHECKIN_END = time(10, 30)
 
 CHECKOUT_START = time(17, 0)
