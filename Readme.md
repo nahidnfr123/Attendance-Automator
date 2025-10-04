@@ -71,6 +71,9 @@ systemctl --user start attendance.service
 
 
 
+
+
+
 ##### CLAUDE
 
 sudo nano ~/.config/systemd/user/attendance-checkin.service
