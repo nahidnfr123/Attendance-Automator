@@ -4,7 +4,10 @@ pip install requests python-dotenv tenacity
 python3 -m venv venv
 source venv/bin/activate
 pip install requests python-dotenv tenacity
+
+# Make Executable 
 chmod +x attendance_automator.py
+chmod +x /var/www/attendance_automation/break-monitor.sh
 
 # Create a service unit /etc/systemd/system/attendance.service
 
@@ -56,9 +59,17 @@ WantedBy=timers.target
 
 # command
 
-sudo systemctl daemon-reload
-sudo systemctl enable --now attendance.timer
-sudo systemctl --user enable attendance.service
+[//]: # (sudo systemctl daemon-reload)
+[//]: # (sudo systemctl enable --now attendance.timer)
+[//]: # (sudo systemctl --user enable attendance.service)
+
+systemctl --user daemon-reload
+systemctl --user enable attendance.service
+systemctl --user start attendance.service
+
+
+
+
 
 ##### CLAUDE
 

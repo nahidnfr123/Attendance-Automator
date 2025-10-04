@@ -1,0 +1,14 @@
+[Unit]
+Description=Attendance Check-in on Startup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/attendance_automation
+EnvironmentFile=/var/www/attendance_automation/.env
+ExecStartPre=/bin/sleep 30
+ExecStart=/var/www/attendance_automation/venv/bin/python /var/www/attendance_automation/attendance_automator.py checkin
+
+[Install]
+WantedBy=default.target

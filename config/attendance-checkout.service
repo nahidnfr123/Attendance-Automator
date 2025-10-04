@@ -1,0 +1,14 @@
+[Unit]
+Description=Attendance Check-out on Shutdown
+DefaultDependencies=no
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/attendance_automation
+EnvironmentFile=/var/www/attendance_automation/.env
+ExecStart=/var/www/attendance_automation/venv/bin/python /var/www/attendance_automation/attendance_automator.py checkout
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

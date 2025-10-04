@@ -1,0 +1,13 @@
+[Unit]
+Description=Break Monitor for Lock/Unlock Detection
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/attendance_automation
+EnvironmentFile=/var/www/attendance_automation/.env
+ExecStart=/bin/bash /var/www/attendance_automation/break-monitor.sh
+Restart=always
+
+[Install]
+WantedBy=default.target
