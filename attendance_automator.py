@@ -234,6 +234,19 @@ def post_with_retry(url, json_payload=None, headers=None, timeout=10):
     return resp
 
 
+def get_with_retry(url, params=None, headers=None, timeout=10):
+    try:
+        resp = session.get(url, params=params, headers=headers, timeout=timeout)
+    except requests.RequestException as e:
+        logger.debug(f"Request exception: {e}")
+        raise
+    if resp.status_code >= 500:
+        print(resp.text)
+        logger.debug(f"Server error {resp.status_code}: will retry")
+        raise NetworkError(f"server {resp.status_code}")
+    return resp
+
+
 def extract_token_from_login_json(j):
     # try a few common fields
     for key in ("token", "access_token", "accessToken", "auth_token", "bearer"):
@@ -274,18 +287,23 @@ def login_and_get_token():
     return token
 
 
-def do_check(endpoint, token):
+def do_check(endpoint, token, method="POST"):
     url = f"{API_BASE_URL}{endpoint}"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {
-        "timestamp": iso_now()
-        # add extra fields if your API expects them (e.g. device info)
-    }
-    logger.info(f"POST {url} payload={payload}")
-    if DRY_RUN:
-        logger.info("DRY_RUN: not sending request")
-        return {"status": "dry-run", "ok": True}
-    resp = post_with_retry(url, json_payload=payload, headers=headers)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    if method == "GET":
+        params = {"timestamp": iso_now()}
+        logger.info(f"GET {url} params={params}")
+        if DRY_RUN:
+            return {"status": "dry-run", "ok": True}
+        resp = get_with_retry(url, params=params, headers=headers)
+    else:
+        payload = {"timestamp": iso_now()}
+        logger.info(f"POST {url} payload={payload}")
+        if DRY_RUN:
+            return {"status": "dry-run", "ok": True}
+        resp = post_with_retry(url, json_payload=payload, headers=headers)
+
     ok = 200 <= resp.status_code < 300
     try:
         j = resp.json()
@@ -304,7 +322,8 @@ def attempt_checkin():
         logger.info("Check-in already recorded for today; skipping.")
         return
     token = login_and_get_token()
-    result = do_check(CHECKIN_ENDPOINT, token)
+    # result = do_check(CHECKIN_ENDPOINT, token)
+    result = do_check(CHECKIN_ENDPOINT, token, method="GET")
     if result.get("ok"):
         set_state_for_today("checkin", {"time": iso_now(), "resp": result.get("resp_json")})
         logger.info("✓ Check-in recorded.")
@@ -318,7 +337,8 @@ def attempt_checkout():
         logger.info("Check-out already recorded for today; skipping.")
         return
     token = login_and_get_token()
-    result = do_check(CHECKOUT_ENDPOINT, token)
+    # result = do_check(CHECKOUT_ENDPOINT, token)
+    result = do_check(CHECKIN_ENDPOINT, token, method="GET")
     if result.get("ok"):
         set_state_for_today("checkout", {"time": iso_now(), "resp": result.get("resp_json")})
         logger.info("✓ Check-out recorded.")
